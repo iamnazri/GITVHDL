@@ -39,7 +39,8 @@ architecture behaviour of boundingbox_tb is
 	constant S_AXIS_TDATA_WIDTH : integer := 24;
 	constant M_AXIS_TDATA_WIDTH : integer := 24;
 	constant C_S_AXI_DATA_WIDTH : integer := 32;
-	constant C_S_AXI_ADDR_WIDTH : integer := 6;
+	constant C_S_AXI_ADDR_WIDTH : integer := 8;
+	constant FRAME_NO           :natural := 5;
 	
 	signal S_AXIS_ACLK	    	: std_logic;
 	signal S_AXIS_ARESETN		: std_logic;		
@@ -162,7 +163,7 @@ begin
     
 
     -- Write XPOS
-	S_AXI_AWADDR <= b"000000";
+	S_AXI_AWADDR <= b"00001000";
     S_AXI_AWVALID <= '1';
     S_AXI_WVALID <= '1';
     S_AXI_WSTRB <= b"1111"; 
@@ -175,9 +176,9 @@ begin
     wait_clk(S_AXI_ACLK, 1);
     S_AXI_BREADY <= '0';
     wait_clk(S_AXI_ACLK, 15);
-    
+
     -- Write ypos
-	S_AXI_AWADDR <= b"000100";
+	S_AXI_AWADDR <= b"00001100";
     S_AXI_AWVALID <= '1';
     S_AXI_WVALID <= '1';
     S_AXI_WSTRB <= b"1111"; 
@@ -192,7 +193,7 @@ begin
     wait_clk(S_AXI_ACLK, 15);
     
     -- Write width
-    S_AXI_AWADDR <= b"001000";
+    S_AXI_AWADDR <= b"00010000";
     S_AXI_AWVALID <= '1';
     S_AXI_WVALID <= '1';
     S_AXI_WSTRB <= b"1111"; 
@@ -207,7 +208,7 @@ begin
     wait_clk(S_AXI_ACLK, 15);
     
     -- Write height
-    S_AXI_AWADDR <= b"001100";
+    S_AXI_AWADDR <= b"00010100";
     S_AXI_AWVALID <= '1';
     S_AXI_WVALID <= '1';
     S_AXI_WSTRB <= b"1111"; 
@@ -221,28 +222,108 @@ begin
     S_AXI_BREADY <= '0';
     wait_clk(S_AXI_ACLK, 15);
     
-	
-	-- Handshake 
-	S_AXIS_TVALID <= '1';
-	M_AXIS_TREADY <= '1';
-	wait_clk(S_AXI_ACLK, 2);
-	
-	
-	
-	for i in 1 to IMG_HEIGHT loop
-	   S_AXIS_TUSER  <= '1';
-	   
-	   for j in 1 to IMG_WIDTH loop
-	       S_AXIS_TDATA <= std_logic_vector(to_unsigned(j,24));
-	       wait_clk(S_AXIS_ACLK, 1);
-	       if (j = 1 ) then
-	           S_AXIS_TUSER  <= '0';
+    -- Write res x and y
+    S_AXI_AWADDR <= b"00000000";
+    S_AXI_AWVALID <= '1';
+    S_AXI_WVALID <= '1';
+    S_AXI_WSTRB <= b"1111"; 
+    S_AXI_WDATA <= x"01400140";
+    S_AXI_BREADY <= '1'; -- expect response from axilite
+    wait_clk(S_AXI_ACLK, 2);
+    S_AXI_AWVALID <= '0';
+    S_AXI_WVALID  <= '0';
+    S_AXI_WSTRB <= b"0000"; 
+    wait_clk(S_AXI_ACLK, 1);
+    S_AXI_BREADY <= '0';
+    wait_clk(S_AXI_ACLK, 15);
+    
+
+    
+
+
+    for i in 1 to IMG_HEIGHT loop
+        
+		
+		
+       for j in 1 to IMG_WIDTH loop
+            
+            -- Sink has valid data
+            S_AXIS_TVALID <= '1';
+            
+            -- Set tuser to enable pixel output
+			if (i = 1 AND j = 1 ) then
+			    S_AXIS_TUSER  <= '1';
+            end if; 
+            -- Wait until module-under-test is ready
+            -- Assume that no disruption occurs within a line
+            if (i = 1 and j = 1) then
+                --wait until S_AXIS_TREADY = '1';
+                wait_clk(S_AXIS_ACLK, 1);
+            end if;
+            -- Assert tlast for the last pixel of the line
+            if (j = IMG_WIDTH) then 
+                S_AXIS_TLAST  <= '1';
+            end if;
+            
+            -- Check if module-under-test sets tready and tvalid
+            assert S_AXIS_TREADY = '1' AND M_AXIS_TVALID = '1' report "handshake error" severity error;
+            -- Assert tuser only at the first pixel of a frame
+            S_AXIS_TDATA <= std_logic_vector(to_unsigned(j,S_AXIS_TDATA_WIDTH));
+            wait_clk(S_AXIS_ACLK, 1);
+            tb_gen_data <= std_logic_vector(to_unsigned(j,S_AXIS_TDATA_WIDTH));
+            -- Deassert tuser again
+           if (j = 1 AND i = 1 ) then
+               S_AXIS_TUSER  <= '0';
            end if;
-	   end loop;
-	   
-        S_AXIS_TLAST  <= '1';
-        wait_clk(S_AXIS_ACLK, 1);
-        S_AXIS_TLAST  <= '0';
+           
+           -- Deassert tlast after 1 clk
+           if (j = IMG_WIDTH) then
+                S_AXIS_TVALID <= '0';
+                S_AXIS_TLAST  <= '0';
+                wait_clk(S_AXIS_ACLK, 1);
+           end if;
+       end loop;
+       
+   end loop;
+       
+
+    wait_clk(S_AXIS_ACLK, 50);
+    S_AXIS_TUSER  <= '1';
+    for m in 1 to IMG_HEIGHT loop
+
+       for n in 1 to IMG_WIDTH loop
+            -- Sink has valid data
+            S_AXIS_TVALID <= '1';
+            
+            -- Wait until module-under-test is ready
+            -- Assume that no disruption occurs within a line
+            if (m = 1 and n = 1) then
+                --wait until S_AXIS_TREADY = '1';
+            end if;
+            -- Assert tlast for the last pixel of the line
+            if (n = IMG_WIDTH) then 
+                S_AXIS_TLAST  <= '1';
+            end if;
+            
+            -- Check if module-under-test sets tready and tvalid
+            assert S_AXIS_TREADY = '1' AND M_AXIS_TVALID = '1' report "handshake error" severity error;
+            -- Assert tuser only at the first pixel of a frame
+            S_AXIS_TDATA <= std_logic_vector(to_unsigned(n,S_AXIS_TDATA_WIDTH));
+            wait_clk(S_AXIS_ACLK, 1);
+            tb_gen_data <= std_logic_vector(to_unsigned(n,S_AXIS_TDATA_WIDTH));
+            -- Deassert tuser again
+           if (m = 1 AND n = 1 ) then
+               S_AXIS_TUSER  <= '0';
+           end if;
+           
+           -- Deassert tlast after 1 clk
+           if (n = IMG_WIDTH) then
+                S_AXIS_TVALID <= '0';
+                S_AXIS_TLAST  <= '0';
+                wait_clk(S_AXIS_ACLK, 1);
+           end if;
+       end loop;
+       
    end loop;
 	
 	wait until rising_edge(S_AXIS_ACLK);
@@ -255,10 +336,9 @@ begin
 
 end process;
 
-	dut : entity work.boundingbox
+	dut : entity work.boundingbox_wrapper
 	generic map(
-	       IMG_WIDTH           =>  IMG_WIDTH,
-	       IMG_HEIGHT          =>  IMG_HEIGHT
+            S_AXIS_TDATA_WIDTH => S_AXIS_TDATA_WIDTH
 	)
 	port map(   
             
@@ -266,13 +346,13 @@ end process;
             S_AXIS_ARESETN	   =>   S_AXIS_ARESETN	,
             S_AXIS_TREADY	   =>   S_AXIS_TREADY	,	
             S_AXIS_TVALID	   =>   S_AXIS_TVALID	,	
-            S_AXIS_TDATA	   =>   S_AXIS_TDATA	,		
+            S_AXIS_TDATA	   =>   S_AXIS_TDATA(S_AXIS_TDATA_WIDTH-1 downto 0)	,		
             S_AXIS_TUSER       =>   S_AXIS_TUSER   ,
             S_AXIS_TLAST	   =>   S_AXIS_TLAST	,		
             M_AXIS_ACLK		   =>   M_AXIS_ACLK		,	
             M_AXIS_ARESETN     =>   M_AXIS_ARESETN ,
             M_AXIS_TVALID      =>   M_AXIS_TVALID  ,
-            M_AXIS_TDATA       =>   M_AXIS_TDATA   ,
+            M_AXIS_TDATA       =>   M_AXIS_TDATA(M_AXIS_TDATA_WIDTH-1 downto 0)   ,
             M_AXIS_TLAST       =>   M_AXIS_TLAST   ,
             M_AXIS_TUSER       =>   M_AXIS_TUSER   ,
             M_AXIS_TREADY      =>   M_AXIS_TREADY  ,
