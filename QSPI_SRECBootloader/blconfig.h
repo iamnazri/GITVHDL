@@ -30,6 +30,9 @@
 *
 ******************************************************************************/
 #warning "Please provide the correct address value for the definition FLASH_IMAGE_BASEADDR. Please give the flash offset @ which SREC application is programmed"
+#warning "It is intended that you dont have to change the baseaddress if you decided to switch to a non-4-byte addressing command for spi transfer operations"
+#warning "because the MSB (01) is ignored and thus bootloader takes from the address 0xE03000. Just remember to also provide the firmware at 0xE00000"
 
-#define FLASH_IMAGE_BASEADDR  0x1E03000
 
+#define FLASH_IMAGE_BASEADDR  		0x1E03000
+#define FLASH_4BYTES_ADDRESSING		0

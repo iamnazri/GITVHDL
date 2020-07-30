@@ -28,6 +28,8 @@
  *      You can also subsequently modify these sources to adapt the bootloader for any
  *      specific scenario that you might require it for.
  *
+ *		Modified: 15072020 		NAB
+ *
  */
 
 
@@ -98,13 +100,6 @@ static XSpi Spi;
 
 
 /*
- * The following variables are shared between non-interrupt processing and
- * interrupt processing such that they must be global.
- */
-volatile static int TransferInProgress;
-
-
-/*
  * The following variable tracks any errors that occur during interrupt
  * processing.
  */
@@ -114,8 +109,8 @@ static int ErrorCount;
 /*
  * Buffer used during Read and Write transactions.
  */
-static u8 ReadBuffer[PAGE_SIZE + READ_WRITE_QUAD_4BYTE_EXTRA_BYTES + BUFFER_PADDING ];
-static u8 WriteBuffer[PAGE_SIZE + READ_WRITE_QUAD_4BYTE_EXTRA_BYTES + BUFFER_PADDING];
+static u8 ReadBuffer[PAGE_SIZE + READ_EXTRA_BYTES + BUFFER_PADDING ];
+static u8 WriteBuffer[PAGE_SIZE + READ_EXTRA_BYTES + BUFFER_PADDING];
 
 extern int srec_line;
 
@@ -189,24 +184,6 @@ int main()
 			return XST_FAILURE;
 	}
 
-
-	/*
-	 * Connect the SPI driver to the interrupt subsystem such that
-	 * interrupts can occur. This function is application specific.
-	 */
-//	Status = SetupInterruptSystem(&Spi);
-//	if(Status != XST_SUCCESS) {
-//		return XST_FAILURE;
-//	}
-
-	/*
-	 * Setup the handler for the SPI that will be called from the interrupt
-	 * context when an SPI status occurs, specify a pointer to the SPI
-	 * driver instance as the callback reference so the handler is able to
-	 * access the instance data.
-	 */
-//	XSpi_SetStatusHandler(&Spi, &Spi, (XSpi_StatusHandler)SpiHandler);
-
 	/*
 	 * Set the SPI device as a master and in manual slave select mode such
 	 * that the slave select signal does not toggle for every byte of a
@@ -233,19 +210,10 @@ int main()
 	 */
 	XSpi_Start(&Spi);
 
-	XSpi_IntrGlobalDisable(&Spi);
-
-
-
 	/*
-	 * Perform the Write Enable operation.
+	 * Disable Global interrupt to use polled mode operation.
 	 */
-	Status = SpiFlashWriteEnable(&Spi);
-	if(Status != XST_SUCCESS) {
-		return XST_FAILURE;
-	}
-
-
+	XSpi_IntrGlobalDisable(&Spi);
 
 	/*
 	 * Set the Quad Enable (QE) bit in the flash device, so that Quad
@@ -255,7 +223,6 @@ int main()
 	if (Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
-
 
 	/*
 	 * Initialize the Serial Flash Library.
@@ -383,9 +350,6 @@ static uint8_t load_exec ()
 }
 
 
-
-
-
 /*
  * This function reads a page of memory using quad 4 bytes command read.
  * It was modified from the original spi srec code from xilinx. It uses
@@ -406,7 +370,7 @@ static uint8_t flash_get_srec_line (uint8_t *buf)
 	uint8_t endFlag = 0;
     int count = 0;
     static int addrIncr = 0, traverseCnt = 0;
-    int mode = READ_WRITE_QUAD_4BYTE_EXTRA_BYTES;
+    int mode = READ_EXTRA_BYTES;
     static uint32_t readAddress, readNumBytes;
 
 	/*
@@ -421,15 +385,11 @@ static uint8_t flash_get_srec_line (uint8_t *buf)
 
 	if (addrIncr == 4)
 		usleep(100);
-//		qspi_print_control(qspi_check_control());
-//		qspi_print_status(qspi_check_status());
-//		u32 rfifo = Xil_In32(QSPI_BASEADDR + XSP_RFO_OFFSET);
-//		u32 tfifo = Xil_In32(QSPI_BASEADDR + XSP_TFO_OFFSET);
-//		u32 drr = Xil_In32(QSPI_BASEADDR + AXI_QSPI_SPIDRR);
 
 	SpiClearReadBuffer();
 
-	Status = SpiFlashRead(&Spi, readAddress, readNumBytes, COMMAND_4BYTE_QUAD_READ);
+	Status = SpiFlashRead(&Spi, readAddress, readNumBytes, SPI_READ_COMMAND);
+
 	if(Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
@@ -443,12 +403,12 @@ static uint8_t flash_get_srec_line (uint8_t *buf)
 
 	/* traverse ReadBuffer from the back, and terminate the buffer */
 	/* Readbuffer will consist of 9 extra bytes + (256 + addrOffset) of data  */
-	for (int i = PAGE_SIZE + READ_WRITE_QUAD_4BYTE_EXTRA_BYTES ; i > READ_WRITE_QUAD_4BYTE_EXTRA_BYTES - 1; i--){
+	for (int i = PAGE_SIZE + READ_EXTRA_BYTES ; i > READ_EXTRA_BYTES - 1; i--){
 		if (ReadBuffer[i] == '\r'){
 			ReadBuffer[i] = '\0';
 			break;
 		}
-		if (i == READ_WRITE_QUAD_4BYTE_EXTRA_BYTES){
+		if (i == READ_EXTRA_BYTES){
 			/* The readbuffer is filled */
 			xil_printf("End of readBuffer reached\n\r");
 		}
@@ -461,11 +421,11 @@ static uint8_t flash_get_srec_line (uint8_t *buf)
 	/* Traverse the beginning of the array to find S and remove the extra bytes*/
 	/* If beginning is imcomplete, just skip to the next srec elements because
 	 * we assume that this is already read. */
-	for (int j = READ_WRITE_QUAD_4BYTE_EXTRA_BYTES; j < 128 + READ_WRITE_QUAD_4BYTE_EXTRA_BYTES; j++){
+	for (int j = READ_EXTRA_BYTES; j < 128 + READ_EXTRA_BYTES; j++){
 		if (ReadBuffer[j] == 'S')
 		{
 			/* Index of SREC Data = CMD Extra bytes + 1 */
-			if (j != READ_WRITE_QUAD_4BYTE_EXTRA_BYTES + 1)
+			if (j != READ_EXTRA_BYTES + 1)
 				//xil_printf("Redundant bytes detected in buffer\r\n");
 			mode = j;
 			break;
@@ -489,27 +449,6 @@ static uint8_t flash_get_srec_line (uint8_t *buf)
     	xil_printf("No Srec data found!\r\n");
     	return 1;
     }
-
-//    if (addrIncr == )
-//        if (c == 0xD) {
-//            /* Eat up the 0xA too */
-//        	TransferInProgress = TRUE;
-//        	readAddress = flbuf++; //        	ReadParam.Address = flbuf++;
-////        	ReadParam.NumBytes = 1;
-////        	ReadParam.ReadPtr = ReadBuffer;
-//
-//        	SpiFlashRead(&Spi, readAddress, (u32)1, COMMAND_QUAD_READ);//XIsf_Read(&Isf, XISF_READ, (void*) &ReadParam);
-//        	SpiFlashWaitForFlashReady();//IsfWaitForFlashNotBusy();
-//        	c  = ReadBuffer[mode];
-//
-//            return 0;
-//        }
-//
-//
-//        *buf++ = c;
-//        count++;
-//        if (count > SREC_MAX_BYTES)
-//            return LD_SREC_LINE_ERROR;
 }
 
 int SpiFlashWaitForFlashReady(void)
@@ -571,31 +510,30 @@ int SpiFlashRead(XSpi *SpiPtr, u32 Addr, u32 ByteCount, u8 ReadCmd)
 	 * Prepare the WriteBuffer. Only for Quad Mode 4 Byte Addressing
 	 */
 	WriteBuffer[BYTE1] = ReadCmd;
+#if FLASH_4BYTES_ADDRESSING
 	WriteBuffer[BYTE2] = (u8) (Addr >> 24);
 	WriteBuffer[BYTE3] = (u8) (Addr >> 16);
 	WriteBuffer[BYTE4] = (u8) (Addr >> 8);
 	WriteBuffer[BYTE5] = (u8) Addr;
+#else
+	WriteBuffer[BYTE2] = (u8) (Addr >> 16);
+	WriteBuffer[BYTE3] = (u8) (Addr >> 8);
+	WriteBuffer[BYTE4] = (u8) Addr;
+#endif
 
 	/*
 	 * Initiate the Transfer.
 	 */
-	TransferInProgress = TRUE;
 	Status = XSpi_Transfer( SpiPtr, WriteBuffer, ReadBuffer,
-				(ByteCount + READ_WRITE_QUAD_4BYTE_EXTRA_BYTES));
+				(ByteCount + READ_EXTRA_BYTES));
 	if(Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
 
-	/*
-	 * Wait till the Transfer is complete and check if there are any errors
-	 * in the transaction.
-	 */
-	usleep(100);
 
-
-	u32 rfifo = Xil_In32(QSPI_BASEADDR + XSP_RFO_OFFSET);
-	u32 tfifo = Xil_In32(QSPI_BASEADDR + XSP_TFO_OFFSET);
-	u32 drr = Xil_In32(QSPI_BASEADDR + AXI_QSPI_SPIDRR);
+//	u32 rfifo = Xil_In32(QSPI_BASEADDR + XSP_RFO_OFFSET);
+//	u32 tfifo = Xil_In32(QSPI_BASEADDR + XSP_TFO_OFFSET);
+//	u32 drr = Xil_In32(QSPI_BASEADDR + AXI_QSPI_SPIDRR);
 
 
 	if(ErrorCount != 0) {
@@ -605,6 +543,7 @@ int SpiFlashRead(XSpi *SpiPtr, u32 Addr, u32 ByteCount, u8 ReadCmd)
 
 	return XST_SUCCESS;
 }
+
 
 /*****************************************************************************/
 /**
@@ -628,18 +567,7 @@ int SpiFlashGetStatus(XSpi *SpiPtr)
 	 */
 	WriteBuffer[BYTE1] = COMMAND_STATUSREG_READ;
 
-//	qspi_print_control(qspi_check_control());
-//	qspi_print_status(qspi_check_status());
-//	qspi_print_irstatus(qspi_check_irstatus());
-//	u32 drr = Xil_In32(QSPI_BASEADDR + AXI_QSPI_SPIDRR);
-	/*
-	 * Initiate the Transfer.
-	 */
 
-
-
-	//Xil_Out32();
-	TransferInProgress = TRUE;
 	Status = XSpi_Transfer(SpiPtr, WriteBuffer, ReadBuffer,
 						STATUS_READ_BYTES);
 	if(Status != XST_SUCCESS) {
@@ -652,16 +580,89 @@ int SpiFlashGetStatus(XSpi *SpiPtr)
 //	u32 ask = Xil_In32(QSPI_BASEADDR + XSP_RFO_OFFSET);
 //	u32 ask2 = Xil_In32(QSPI_BASEADDR + XSP_TFO_OFFSET);
 //	drr = Xil_In32(QSPI_BASEADDR + AXI_QSPI_SPIDRR);
-	/*
-	 * Wait till the Transfer is complete and check if there are any errors
-	 * in the transaction..
-	 */
-	usleep(100);
 
 	if(ErrorCount != 0) {
 		ErrorCount = 0;
 		return XST_FAILURE;
 	}
+
+	return XST_SUCCESS;
+}
+
+/*****************************************************************************/
+/**
+*
+* This function reads the Status Flag register of the Winbond Flash.
+*
+* @param	SpiPtr is a pointer to the instance of the Spi device.
+*
+* @return	XST_SUCCESS if successful else XST_FAILURE.
+*
+* @note		The status register content is stored at the second byte pointed
+*		by the ReadBuffer.
+*
+******************************************************************************/
+int SpiFlashGetFlagStatus(XSpi *SpiPtr)
+{
+	int Status;
+
+
+	/*
+	 * Prepare the Write Buffer.
+	 */
+	WriteBuffer[BYTE1] = COMMAND_STATUSFLAG_READ;
+
+
+	Status = XSpi_Transfer(SpiPtr, WriteBuffer, ReadBuffer,
+						STATUS_READ_BYTES);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+
+	return XST_SUCCESS;
+}
+
+
+
+/*****************************************************************************/
+/**
+*
+* This function enables the use of 4 bytes addressing of the Winbond Flash.
+*
+* @param	SpiPtr is a pointer to the instance of the Spi device.
+*
+* @return	XST_SUCCESS if successful else XST_FAILURE.
+*
+* @note		The status register content is stored at the second byte pointed
+*		by the ReadBuffer.
+*
+******************************************************************************/
+int SpiFlash4ByteAddressingEnable(XSpi *SpiPtr)
+{
+	int Status;
+
+	/*
+	 * Wait while the Flash is busy.
+	 */
+//	Status = SpiFlashWaitForFlashReady();
+//	if(Status != XST_SUCCESS) {
+//		return XST_FAILURE;
+//	}
+
+	/*
+	 * Prepare the Write Buffer.
+	 */
+	WriteBuffer[BYTE1] = COMMAND_ENTER_4BYTE_ADDRESS_MODE;
+
+
+
+	Status = XSpi_Transfer(SpiPtr, WriteBuffer, NULL,
+						0);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
 
 	return XST_SUCCESS;
 }
@@ -698,18 +699,12 @@ int SpiFlashWriteEnable(XSpi *SpiPtr)
 	/*
 	 * Initiate the Transfer.
 	 */
-	TransferInProgress = TRUE;
 	Status = XSpi_Transfer(SpiPtr, WriteBuffer, NULL,
 				WRITE_ENABLE_BYTES);
 	if(Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
 
-	/*
-	 * Wait till the Transfer is complete and check if there are any errors
-	 * in the transaction..
-	 */
-	usleep(100);
 
 
 	if(ErrorCount != 0) {
@@ -747,7 +742,6 @@ void SpiHandler(void *CallBackRef, u32 StatusEvent, unsigned int ByteCount)
 	 * Indicate the transfer on the SPI bus is no longer in progress
 	 * regardless of the status event.
 	 */
-	TransferInProgress = FALSE;
 
 	/*
 	 * If the event was not transfer done, then track it as an error.
@@ -881,17 +875,11 @@ int SpiFlashQuadEnable(XSpi *SpiPtr)
 	/*
 	 * Initiate the Transfer.
 	 */
-	TransferInProgress = TRUE;
 	Status = XSpi_Transfer(SpiPtr, WriteBuffer, NULL, 3);
 	if(Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
 
-	/*
-	 * Wait till the Transfer is complete and check if there are any errors
-	 * in the transaction..
-	 */
-	usleep(100);
 
 	if(ErrorCount != 0) {
 		ErrorCount = 0;
@@ -918,18 +906,12 @@ int SpiFlashQuadEnable(XSpi *SpiPtr)
 	/*
 	 * Initiate the Transfer.
 	 */
-	TransferInProgress = TRUE;
 	Status = XSpi_Transfer(SpiPtr, WriteBuffer, ReadBuffer,
 						STATUS_READ_BYTES);
 	if(Status != XST_SUCCESS) {
 		return XST_FAILURE;
 	}
 
-	/*
-	 * Wait till the Transfer is complete and check if there are any errors
-	 * in the transaction..
-	 */
-	usleep(100);
 
 	if(ErrorCount != 0) {
 		ErrorCount = 0;
@@ -949,6 +931,86 @@ void SpiClearReadBuffer(){
 		}
 
 }
+
+int SpiFlashGetNonVolatileConfigStatus(){
+
+	int Status;
+
+	/*
+	 * Wait while the Flash is busy.
+	 */
+	Status = SpiFlashWaitForFlashReady();
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+
+	/*
+	 * Prepare the Write Buffer.
+	 */
+	WriteBuffer[BYTE1] = COMMAND_NONVOLATILE_CONFIGREG_READ;
+
+
+	Status = XSpi_Transfer(&Spi, WriteBuffer, ReadBuffer,
+						2);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	return Status;
+}
+
+
+int SpiFlashSetUpperAddressRange(){
+
+	int Status;
+
+
+	Status = SpiFlashWriteEnable(&Spi);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Wait while the Flash is busy.
+	 */
+	Status = SpiFlashWaitForFlashReady();
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Initiate the Transfer.
+	 */
+	Status = XSpi_Transfer(&Spi, WriteBuffer, NULL, 3);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Wait while the Flash is busy.
+	 */
+	Status = SpiFlashWaitForFlashReady();
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	/*
+	 * Prepare the Write Buffer.
+	 */
+	WriteBuffer[BYTE1] = 0xC5;
+	WriteBuffer[BYTE2] = 0x01;
+
+
+	Status = XSpi_Transfer(&Spi, WriteBuffer, ReadBuffer,
+						1);
+	if(Status != XST_SUCCESS) {
+		return XST_FAILURE;
+	}
+
+	return Status;
+}
+
 #ifdef __PPC__
 
 #include <unistd.h>

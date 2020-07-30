@@ -11,18 +11,16 @@
 /*
  * Definitions of the commands shown in this example.
  */
-#define COMMAND_PAGE_PROGRAM		0x02 /* Page Program command */
-#define COMMAND_QUAD_WRITE		0x32 /* Quad Input Fast Program */
-#define COMMAND_RANDOM_READ		0x03 /* Random read command */
-#define COMMAND_DUAL_READ		0x3B /* Dual Output Fast Read */
-#define COMMAND_DUAL_IO_READ		0xBB /* Dual IO Fast Read */
-#define COMMAND_QUAD_READ		0x6B /* Quad Output Fast Read */
-#define COMMAND_QUAD_IO_READ		0xEB /* Quad IO Fast Read */
-#define	COMMAND_WRITE_ENABLE		0x06 /* Write Enable command */
-#define COMMAND_SECTOR_ERASE		0xD8 /* Sector Erase command */
-#define COMMAND_BULK_ERASE		0xC7 /* Bulk Erase command */
-#define COMMAND_STATUSREG_READ		0x05 /* Status read command */
-
+#define COMMAND_PAGE_PROGRAM					0x02 /* Page Program command */
+#define COMMAND_QUAD_WRITE						0x32 /* Quad Input Fast Program */
+#define COMMAND_RANDOM_READ						0x03 /* Random read command */
+#define COMMAND_DUAL_READ						0x3B /* Dual Output Fast Read */
+#define COMMAND_DUAL_IO_READ					0xBB /* Dual IO Fast Read */
+#define COMMAND_QUAD_READ						0x6B /* Quad Output Fast Read */
+#define COMMAND_QUAD_IO_READ					0xEB /* Quad IO Fast Read */
+#define	COMMAND_WRITE_ENABLE					0x06 /* Write Enable command */
+#define COMMAND_SECTOR_ERASE					0xD8 /* Sector Erase command */
+#define COMMAND_BULK_ERASE						0xC7 /* Bulk Erase command */
 
 #define COMMAND_4BYTE_FAST_READ 				0x0C /* Quad Output Fast Read */
 #define COMMAND_4BYTE_DUAL_READ					0x3C /* Dual Output Fast Read */
@@ -30,7 +28,16 @@
 #define COMMAND_4BYTE_QUAD_READ					0x6C /* Quad Output Fast Read */
 #define COMMAND_4BYTE_QUAD_IO_READ				0xEC /* Quad IO Fast Read */
 
+#define COMMAND_STATUSREG_READ					0x05 /* Status read command */
+#define COMMAND_STATUSFLAG_READ 				0x70 /* Status Flag Read command*/
+#define COMMAND_NONVOLATILE_CONFIGREG_READ		0xB5
+#define COMMAND_ENTER_4BYTE_ADDRESS_MODE		0xB7
+#define COMMAND_EXIT_4BYTE_ADDRESS_MODE			0xE9
+#define COMMAND_DEVICE_ID_READ					0x9F
+
+
 #define READ_WRITE_QUAD_4BYTE_EXTRA_BYTES 		9
+#define READ_WRITE_QUAD_EXTRA_BYTES 			8
 /**
  * This definitions specify the EXTRA bytes in each of the command
  * transactions. This count includes Command byte, address bytes and any
@@ -59,6 +66,15 @@
 #define BYTE6				5 /* Byte 6 position */
 #define BYTE7				6 /* Byte 7 position */
 #define BYTE8				7 /* Byte 8 position */
+
+#if FLASH_4BYTES_ADDRESSING
+#define READ_EXTRA_BYTES			READ_WRITE_QUAD_EXTRA_BYTES
+#define SPI_READ_COMMAND			COMMAND_4BYTE_QUAD_READ
+
+#else
+#define READ_EXTRA_BYTES			READ_WRITE_QUAD_4BYTE_EXTRA_BYTES
+#define SPI_READ_COMMAND			COMMAND_QUAD_READ
+#endif
 
 
 #endif /* SRC_COMMANDS_H_ */
